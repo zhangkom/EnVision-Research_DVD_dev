@@ -112,6 +112,39 @@ def save_depth_png16(depth, output_dir, stem):
     return depth_dir, metadata_path
 
 
+def save_depth_video_fast(depth, output_dir, stem, fps, grayscale=False):
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(
+        output_dir, f"{stem}_{'gray' if grayscale else 'color'}_depth_vis.mp4"
+    )
+
+    depth_single = depth_to_single_channel(depth).astype(np.float32)
+    d_min = float(np.nanmin(depth_single))
+    d_max = float(np.nanmax(depth_single))
+    denom = max(d_max - d_min, 1e-8)
+    depth_u8 = ((depth_single - d_min) / denom * 255.0).clip(0, 255).astype(np.uint8)
+
+    height, width = depth_u8.shape[1:3]
+    writer = cv2.VideoWriter(
+        output_path,
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        (width, height),
+        True,
+    )
+    if not writer.isOpened():
+        raise RuntimeError(f"Cannot open video writer: {output_path}")
+
+    for frame in depth_u8:
+        if grayscale:
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        else:
+            frame_bgr = cv2.applyColorMap(frame, cv2.COLORMAP_TURBO)
+        writer.write(frame_bgr)
+    writer.release()
+    return output_path
+
+
 def load_model(weights, yaml_args, device, dtype, local_model_path):
     accelerator = Accelerator()
     model = WanTrainingModule(
@@ -161,6 +194,7 @@ def parse_args():
     parser.add_argument("--dtype", choices=sorted(DTYPES), default="fp16")
     parser.add_argument("--run_name", default=None)
     parser.add_argument("--grayscale", action="store_true")
+    parser.add_argument("--fast_video_save", action="store_true")
     parser.add_argument("--no_save", action="store_true")
     parser.add_argument("--save_depth_npy", action="store_true")
     parser.add_argument("--save_depth_png16", action="store_true")
@@ -242,14 +276,22 @@ def main():
     with timed(metrics, "resize_back_s"):
         depth = resize_depth_back(depth, orig_size)
 
+    stem = args.run_name or Path(args.input_video).stem
     if not args.no_save:
         with timed(metrics, "save_s"):
-            output_path = save_results(depth, origin_fps, args)
+            if args.fast_video_save:
+                output_path = save_depth_video_fast(
+                    depth, args.output_dir, stem, origin_fps, args.grayscale
+                )
+            else:
+                save_args = argparse.Namespace(**vars(args))
+                if args.run_name:
+                    save_args.input_video = f"{args.run_name}.mp4"
+                output_path = save_results(depth, origin_fps, save_args)
         metrics["output_path"] = output_path
     else:
         metrics["save_s"] = 0.0
 
-    stem = args.run_name or Path(args.input_video).stem
     if args.save_depth_npy:
         with timed(metrics, "save_depth_npy_s"):
             metrics["depth_npy_path"] = save_depth_npy(depth, args.output_dir, stem)
