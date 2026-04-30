@@ -33,6 +33,9 @@ class WanTrainingModule(DiffusionTrainingModule):
         lora_target_modules='q,k,v,o,ffn.0,ffn.2',
         use_gradient_checkpointing=True,
         use_gradient_checkpointing_offload=False,
+        torch_dtype=torch.bfloat16,
+        skip_download=False,
+        local_model_path="./models",
 
     ):
         super().__init__()
@@ -53,9 +56,11 @@ class WanTrainingModule(DiffusionTrainingModule):
             ]
             
         self.pipe = WanVideoPipeline.from_pretrained(
-            torch_dtype=torch.bfloat16,
+            torch_dtype=torch_dtype,
             device="cpu",
             model_configs=model_configs,
+            local_model_path=local_model_path,
+            skip_download=skip_download,
         )
 
         # DiT related

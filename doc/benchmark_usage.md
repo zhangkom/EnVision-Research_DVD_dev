@@ -1,0 +1,53 @@
+# DVD Inference Benchmark
+
+This repository keeps model weights, local test videos, and generated outputs out of Git.
+
+Recommended local layout:
+
+```text
+EnVision-Research_DVD_dev/
+├── ckpt/
+│   ├── model_config.yaml
+│   └── model.safetensors
+├── models/
+│   └── Wan-AI/Wan2.1-T2V-1.3B/
+├── test_video/
+│   └── depth_full_50frame.mp4
+└── output/
+```
+
+For Quadro RTX 6000 Turing, use FP16 rather than BF16:
+
+```powershell
+conda run -n dvd python tools\benchmark_single_video.py `
+  --input_video test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --height 480 `
+  --width 640 `
+  --window_size 81 `
+  --overlap 21 `
+  --dtype fp16
+```
+
+If the weights live outside this repository, pass explicit paths:
+
+```powershell
+conda run -n dvd python tools\benchmark_single_video.py `
+  --weights C:\work\workspace_own\workspace_dvd\ckpt\model.safetensors `
+  --local_model_path C:\work\workspace_own\workspace_dvd\models `
+  --input_video test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --dtype fp16
+```
+
+The script writes a depth visualization video and a JSON timing report into `output/`.
+The JSON includes model loading time, video decode/resize time, inference time, resize-back time, save time, FPS, and CUDA peak memory.
+
+On the local RTX 4090 test machine, `robot_navi.mp4` at resized `480x880` measured:
+
+```text
+81 frames: inference 12.58s, 6.44 FPS, peak allocated 8.63GB
+1210 frames: inference 301.17s, 4.02 FPS, no output video save
+```
+
+Quadro RTX 6000 Turing has 24GB VRAM, so the default 480p window should fit, but it is expected to be slower than RTX 4090.
