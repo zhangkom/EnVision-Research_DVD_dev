@@ -127,6 +127,19 @@ class BasePipeline(torch.nn.Module):
         min_value=-1,
         max_value=1,
     ):
+        if isinstance(video, torch.Tensor) and pattern == "B C T H W":
+            video = video.to(
+                dtype=torch_dtype or self.torch_dtype,
+                device=device or self.device,
+            )
+            video = video * (max_value - min_value) + min_value
+            if video.ndim == 4 and video.shape[1] == 3:  # T C H W
+                return video.permute(1, 0, 2, 3).unsqueeze(0).contiguous()
+            if video.ndim == 5 and video.shape[2] == 3:  # B T C H W
+                return video.permute(0, 2, 1, 3, 4).contiguous()
+            if video.ndim == 5 and video.shape[1] == 3:  # B C T H W
+                return video.contiguous()
+
         video = [
             self.preprocess_image(
                 image,

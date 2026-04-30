@@ -50,4 +50,11 @@ On the local RTX 4090 test machine, `robot_navi.mp4` at resized `480x880` measur
 1210 frames: inference 301.17s, 4.02 FPS, no output video save
 ```
 
+On the provided wide test video `test_video/depth_full_50frame.mp4` at resized `480x1728`:
+
+```text
+Baseline 81 frames: inference 27.04s, 3.00 FPS, peak reserved 16.75GB
+After preprocessing/VAE concat optimization: inference 25.85s, 3.13 FPS, peak reserved 17.08GB
+```
+
 Quadro RTX 6000 Turing has 24GB VRAM, so the default 480p window should fit, but it is expected to be slower than RTX 4090.

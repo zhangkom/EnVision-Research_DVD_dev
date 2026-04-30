@@ -526,18 +526,23 @@ class VideoVAE_(nn.Module):
         # cache
         t = x.shape[2]
         iter_ = 1 + (t - 1) // 4
+        outs = []
 
         for i in range(iter_):
             self._enc_conv_idx = [0]
             if i == 0:
-                out = self.encoder(x[:, :, :1, :, :],
-                                   feat_cache=self._enc_feat_map,
-                                   feat_idx=self._enc_conv_idx)
+                outs.append(
+                    self.encoder(x[:, :, :1, :, :],
+                                 feat_cache=self._enc_feat_map,
+                                 feat_idx=self._enc_conv_idx)
+                )
             else:
-                out_ = self.encoder(x[:, :, 1 + 4 * (i - 1):1 + 4 * i, :, :],
-                                    feat_cache=self._enc_feat_map,
-                                    feat_idx=self._enc_conv_idx)
-                out = torch.cat([out, out_], 2)
+                outs.append(
+                    self.encoder(x[:, :, 1 + 4 * (i - 1):1 + 4 * i, :, :],
+                                 feat_cache=self._enc_feat_map,
+                                 feat_idx=self._enc_conv_idx)
+                )
+        out = torch.cat(outs, 2)
         mu, log_var = self.conv1(out).chunk(2, dim=1)
         if isinstance(scale[0], torch.Tensor):
             scale = [s.to(dtype=mu.dtype, device=mu.device) for s in scale]
@@ -560,18 +565,22 @@ class VideoVAE_(nn.Module):
             z = z / scale[1] + scale[0]
         iter_ = z.shape[2]
         x = self.conv2(z)
+        outs = []
         for i in range(iter_):
             self._conv_idx = [0]
             if i == 0:
-                out = self.decoder(x[:, :, i:i + 1, :, :],
-                                   feat_cache=self._feat_map,
-                                   feat_idx=self._conv_idx)
+                outs.append(
+                    self.decoder(x[:, :, i:i + 1, :, :],
+                                 feat_cache=self._feat_map,
+                                 feat_idx=self._conv_idx)
+                )
             else:
-                out_ = self.decoder(x[:, :, i:i + 1, :, :],
-                                    feat_cache=self._feat_map,
-                                    feat_idx=self._conv_idx)
-                out = torch.cat([out, out_], 2)  # may add tensor offload
-        return out
+                outs.append(
+                    self.decoder(x[:, :, i:i + 1, :, :],
+                                 feat_cache=self._feat_map,
+                                 feat_idx=self._conv_idx)
+                )
+        return torch.cat(outs, 2)
 
     def reparameterize(self, mu, log_var):
         std = torch.exp(0.5 * log_var)
