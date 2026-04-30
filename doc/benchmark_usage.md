@@ -107,6 +107,6 @@ conda run -n dvd python tools\benchmark_single_video.py `
 
 This processes at `256x928` and measured `6.10s` for 81 frames, `13.28 FPS`, with peak reserved memory `7.81GB` on RTX 4090. This is a speed/quality tradeoff and should be visually checked before production use.
 
-The complete 1000-frame test video at `256x928` measured `109.70s` pure inference, `9.12 FPS`, peak reserved memory `7.81GB`. The legacy visualization save path took an additional `84.47s`, so use `--fast_video_save` or `--no_save` when benchmarking throughput.
+The complete 1000-frame test video at `256x928` measured `106.18s` pure inference, `9.42 FPS`, peak reserved memory `7.81GB`. The legacy visualization save path took `84.47s`; `--fast_video_save` reduced visualization saving to `11.61s`, bringing end-to-end throughput excluding model load to `8.09 FPS`.
 
 Quadro RTX 6000 Turing has 24GB VRAM, so the default 480p window should fit, but it is expected to be slower than RTX 4090.
