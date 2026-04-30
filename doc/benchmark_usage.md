@@ -109,4 +109,22 @@ This processes at `256x928` and measured `6.10s` for 81 frames, `13.28 FPS`, wit
 
 The complete 1000-frame test video at `256x928` measured `106.18s` pure inference, `9.42 FPS`, peak reserved memory `7.81GB`. The legacy visualization save path took `84.47s`; `--fast_video_save` reduced visualization saving to `11.61s`, bringing end-to-end throughput excluding model load to `8.09 FPS`.
 
+Reducing overlap can improve throughput further:
+
+```powershell
+conda run -n dvd python tools\benchmark_single_video.py `
+  --weights C:\work\workspace_own\workspace_dvd\ckpt\model.safetensors `
+  --local_model_path C:\work\workspace_own\workspace_dvd\models `
+  --input_video test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --height 256 `
+  --width 640 `
+  --window_size 81 `
+  --overlap 9 `
+  --dtype fp16 `
+  --no_save
+```
+
+On the same 1000-frame video, `overlap=9` reduced the window count from 17 to 14 and measured `85.74s` pure inference, `11.66 FPS`. This is a quality/speed tradeoff: the overlap-alignment MAE showed larger spikes, so visually compare against `overlap=21` before using it for production.
+
 Quadro RTX 6000 Turing has 24GB VRAM, so the default 480p window should fit, but it is expected to be slower than RTX 4090.
