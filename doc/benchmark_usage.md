@@ -43,6 +43,22 @@ conda run -n dvd python tools\benchmark_single_video.py `
 The script writes a depth visualization video and a JSON timing report into `output/`.
 The JSON includes model loading time, video decode/resize time, inference time, resize-back time, save time, FPS, and CUDA peak memory.
 
+For downstream 2D-to-3D processing, save raw relative depth instead of only the color visualization:
+
+```powershell
+conda run -n dvd python tools\benchmark_single_video.py `
+  --weights C:\work\workspace_own\workspace_dvd\ckpt\model.safetensors `
+  --local_model_path C:\work\workspace_own\workspace_dvd\models `
+  --input_video test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --dtype fp16 `
+  --save_depth_npy `
+  --save_depth_png16
+```
+
+`--save_depth_npy` writes a single-channel float16 relative-depth tensor with shape `T,H,W`.
+`--save_depth_png16` writes globally normalized 16-bit PNG frames plus `metadata.json` containing the original min/max used for normalization.
+
 On the local RTX 4090 test machine, `robot_navi.mp4` at resized `480x880` measured:
 
 ```text

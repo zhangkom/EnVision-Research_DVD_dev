@@ -76,6 +76,42 @@ def read_video_limited(video_path, max_frames=None):
     return video_tensor.unsqueeze(0), fps, total_frames
 
 
+def depth_to_single_channel(depth):
+    if depth.ndim == 4 and depth.shape[-1] > 1:
+        return depth.mean(axis=-1)
+    if depth.ndim == 4 and depth.shape[-1] == 1:
+        return depth[..., 0]
+    return depth
+
+
+def save_depth_npy(depth, output_dir, stem):
+    depth_single = depth_to_single_channel(depth).astype(np.float16)
+    path = os.path.join(output_dir, f"{stem}_depth.npy")
+    np.save(path, depth_single)
+    return path
+
+
+def save_depth_png16(depth, output_dir, stem):
+    depth_single = depth_to_single_channel(depth).astype(np.float32)
+    depth_dir = os.path.join(output_dir, f"{stem}_depth_png16")
+    os.makedirs(depth_dir, exist_ok=True)
+
+    d_min = float(np.nanmin(depth_single))
+    d_max = float(np.nanmax(depth_single))
+    denom = max(d_max - d_min, 1e-8)
+    depth_u16 = ((depth_single - d_min) / denom * 65535.0).clip(0, 65535).astype(
+        np.uint16
+    )
+
+    for idx, frame in enumerate(depth_u16):
+        cv2.imwrite(os.path.join(depth_dir, f"{idx:06d}.png"), frame)
+
+    metadata_path = os.path.join(depth_dir, "metadata.json")
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump({"min": d_min, "max": d_max, "dtype": "uint16"}, f, indent=2)
+    return depth_dir, metadata_path
+
+
 def load_model(weights, yaml_args, device, dtype, local_model_path):
     accelerator = Accelerator()
     model = WanTrainingModule(
@@ -125,6 +161,8 @@ def parse_args():
     parser.add_argument("--dtype", choices=sorted(DTYPES), default="fp16")
     parser.add_argument("--grayscale", action="store_true")
     parser.add_argument("--no_save", action="store_true")
+    parser.add_argument("--save_depth_npy", action="store_true")
+    parser.add_argument("--save_depth_png16", action="store_true")
     return parser.parse_args()
 
 
@@ -210,6 +248,21 @@ def main():
     else:
         metrics["save_s"] = 0.0
 
+    stem = Path(args.input_video).stem
+    if args.save_depth_npy:
+        with timed(metrics, "save_depth_npy_s"):
+            metrics["depth_npy_path"] = save_depth_npy(depth, args.output_dir, stem)
+    else:
+        metrics["save_depth_npy_s"] = 0.0
+
+    if args.save_depth_png16:
+        with timed(metrics, "save_depth_png16_s"):
+            depth_dir, metadata_path = save_depth_png16(depth, args.output_dir, stem)
+        metrics["depth_png16_dir"] = depth_dir
+        metrics["depth_png16_metadata"] = metadata_path
+    else:
+        metrics["save_depth_png16_s"] = 0.0
+
     metrics["total_s"] = sum(
         metrics[k]
         for k in (
@@ -218,6 +271,8 @@ def main():
             "inference_s",
             "resize_back_s",
             "save_s",
+            "save_depth_npy_s",
+            "save_depth_png16_s",
         )
     )
     metrics["inference_fps"] = frames / metrics["inference_s"]
@@ -235,7 +290,7 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     benchmark_path = os.path.join(
         args.output_dir,
-        f"benchmark_{Path(args.input_video).stem}_{frames}f_{args.dtype}.json",
+        f"benchmark_{stem}_{frames}f_{args.dtype}.json",
     )
     with open(benchmark_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
