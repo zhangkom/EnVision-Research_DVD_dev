@@ -73,4 +73,22 @@ Baseline 81 frames: inference 27.04s, 3.00 FPS, peak reserved 16.75GB
 After preprocessing/VAE concat optimization: inference 25.85s, 3.13 FPS, peak reserved 17.08GB
 ```
 
+For a faster preview/throughput profile on the same wide video, lowering the target height reduces the actual processed size:
+
+```powershell
+conda run -n dvd python tools\benchmark_single_video.py `
+  --weights C:\work\workspace_own\workspace_dvd\ckpt\model.safetensors `
+  --local_model_path C:\work\workspace_own\workspace_dvd\models `
+  --input_video test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --height 256 `
+  --width 640 `
+  --window_size 81 `
+  --overlap 21 `
+  --dtype fp16 `
+  --no_save
+```
+
+This processes at `256x928` and measured `6.10s` for 81 frames, `13.28 FPS`, with peak reserved memory `7.81GB` on RTX 4090. This is a speed/quality tradeoff and should be visually checked before production use.
+
 Quadro RTX 6000 Turing has 24GB VRAM, so the default 480p window should fit, but it is expected to be slower than RTX 4090.

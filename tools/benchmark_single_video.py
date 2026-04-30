@@ -159,6 +159,7 @@ def parse_args():
     parser.add_argument("--max_frames", type=int, default=None)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", choices=sorted(DTYPES), default="fp16")
+    parser.add_argument("--run_name", default=None)
     parser.add_argument("--grayscale", action="store_true")
     parser.add_argument("--no_save", action="store_true")
     parser.add_argument("--save_depth_npy", action="store_true")
@@ -248,7 +249,7 @@ def main():
     else:
         metrics["save_s"] = 0.0
 
-    stem = Path(args.input_video).stem
+    stem = args.run_name or Path(args.input_video).stem
     if args.save_depth_npy:
         with timed(metrics, "save_depth_npy_s"):
             metrics["depth_npy_path"] = save_depth_npy(depth, args.output_dir, stem)
@@ -290,7 +291,11 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     benchmark_path = os.path.join(
         args.output_dir,
-        f"benchmark_{stem}_{frames}f_{args.dtype}.json",
+        (
+            f"benchmark_{stem}_{frames}f_"
+            f"{metrics['resized_height']}x{metrics['resized_width']}_"
+            f"win{args.window_size}_ov{args.overlap}_{args.dtype}.json"
+        ),
     )
     with open(benchmark_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
