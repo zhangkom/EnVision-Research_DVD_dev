@@ -43,6 +43,17 @@ conda run -n dvd python tools\benchmark_single_video.py `
 The script writes a depth visualization video and a JSON timing report into `output/`.
 The JSON includes model loading time, video decode/resize time, inference time, resize-back time, save time, FPS, and CUDA peak memory.
 
+Common speed/quality presets are available through `--preset`:
+
+```text
+quality          480x640 target, window 81, overlap 21
+balanced         256x640 target, window 81, overlap 21
+throughput       192x640 target, window 81, overlap 9
+realtime-preview 128x512 target, window 81, overlap 9
+```
+
+See `doc/optimization_strategy.md` for the GGUF/FP8 analysis and the real-time benchmark notes.
+
 For downstream 2D-to-3D processing, save raw relative depth instead of only the color visualization:
 
 ```powershell

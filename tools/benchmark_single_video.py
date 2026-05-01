@@ -36,6 +36,34 @@ DTYPES = {
 }
 
 
+PRESETS = {
+    "quality": {
+        "height": 480,
+        "width": 640,
+        "window_size": 81,
+        "overlap": 21,
+    },
+    "balanced": {
+        "height": 256,
+        "width": 640,
+        "window_size": 81,
+        "overlap": 21,
+    },
+    "throughput": {
+        "height": 192,
+        "width": 640,
+        "window_size": 81,
+        "overlap": 9,
+    },
+    "realtime-preview": {
+        "height": 128,
+        "width": 512,
+        "window_size": 81,
+        "overlap": 9,
+    },
+}
+
+
 def cuda_sync():
     if torch.cuda.is_available():
         torch.cuda.synchronize()
@@ -185,6 +213,7 @@ def parse_args():
     parser.add_argument("--local_model_path", default="models")
     parser.add_argument("--input_video", default="test_video/depth_full_50frame.mp4")
     parser.add_argument("--output_dir", default="output")
+    parser.add_argument("--preset", choices=sorted(PRESETS), default=None)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--window_size", type=int, default=81)
@@ -198,7 +227,15 @@ def parse_args():
     parser.add_argument("--no_save", action="store_true")
     parser.add_argument("--save_depth_npy", action="store_true")
     parser.add_argument("--save_depth_png16", action="store_true")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.preset:
+        explicit_flags = {
+            arg.split("=", 1)[0] for arg in sys.argv[1:] if arg.startswith("--")
+        }
+        for key, value in PRESETS[args.preset].items():
+            if f"--{key}" not in explicit_flags:
+                setattr(args, key, value)
+    return args
 
 
 def main():
@@ -219,6 +256,7 @@ def main():
         "width": args.width,
         "window_size": args.window_size,
         "overlap": args.overlap,
+        "preset": args.preset,
         "weights": weights,
         "local_model_path": args.local_model_path,
         "device_requested": args.device,
