@@ -22,6 +22,56 @@
 | P7 | DVD teacher 蒸馏轻量实时模型 | 最高 | 很高 | 可控 | 最像最终产品路线 |
 | P8 | 更换/升级目标 GPU | 高 | 采购成本 | 低 | 如果硬件可变，这是最直接的性能杠杆 |
 
+## 为什么不把 GGUF + FP8 作为方案
+
+这个方向不是完全不能研究，而是**不适合作为 Quadro RTX 6000 Turing 上达成实时的主路线**。原因分四层：
+
+### 1. GGUF 只是格式，不是 DVD 的执行器
+
+GGUF 是面向 GGML-based executors 的模型格式，适合 GGML/llama.cpp 这类执行链路：<https://github.com/ggml-org/ggml/blob/master/docs/gguf.md>
+
+DVD 不是单个 LLM，也不是只包含 dense matmul 的文本模型。它当前是 PyTorch 视频扩散/深度估计链路，包含：
+
+- Wan Video DiT
+- Wan VAE / Conv3D 编解码
+- LoRA merge
+- 视频窗口切片
+- overlap 深度对齐和拼接
+- 深度 resize、保存和下游输出
+
+把 `safetensors` 转成 GGUF 并不会让这些 PyTorch module 自动在 GGML 里运行。真要走 GGUF，需要重写或适配 DiT、VAE、attention、Conv3D、调度、窗口拼接和后处理执行器，工作量接近重新做一套推理框架。
+
+### 2. Quadro RTX 6000 Turing 没有原生 FP8 快路径
+
+目标卡 Quadro RTX 6000 是 Turing 架构。NVIDIA 官方规格说明它是 Turing GPU：<https://www.nvidia.com/en-sg/products/workstations/quadro/rtx-6000/>
+
+TensorRT-RTX 官方支持矩阵显示，Turing / compute capability 7.5 支持 FP32、FP16，但 `FP8 GEMM` 是 `No`：<https://docs.nvidia.com/deeplearning/tensorrt-rtx/v1.1/getting-started/support-matrix.html>
+
+因此在这张卡上把底层从 FP16 换成 FP8，通常不会得到 FP8 Tensor Core 加速。实际执行很可能需要反量化、转换或回退到 FP16/FP32 路径，速度不一定提升，甚至可能变慢。
+
+### 3. FP8 不是无损压缩，会影响深度稳定性
+
+DVD 的输出不是分类标签，而是连续深度图，还要求视频时间一致性。FP8/低比特量化会影响：
+
+- 深度尺度稳定性
+- overlap 区域对齐
+- 相邻帧闪烁
+- 前后景深度排序
+- 下游 2D 转 3D 的遮挡和形变
+
+所以即使换到支持 FP8 的新 GPU，也需要校准集、teacher 对比和下游视觉评估，不能直接把 FP16 权重替换成 FP8 就上线。
+
+### 4. 更适合本项目的低精度路线是 TensorRT FP16 / INT8
+
+本项目目标卡是 Quadro RTX 6000 Turing，优先顺序应该是：
+
+1. PyTorch FP16 基线。
+2. 固定 shape + TensorRT FP16。
+3. 有校准集的 TensorRT INT8。
+4. 如果仍不够，再做 DVD teacher 蒸馏轻量实时模型。
+
+GGUF + FP8 同时踩中“执行器不匹配”和“目标硬件不支持原生 FP8”两个问题，不适合作为第一阶段实时化方案。
+
 ## 推荐试验顺序
 
 ### 1. 在 Quadro RTX 6000 Turing 上做真实基线
