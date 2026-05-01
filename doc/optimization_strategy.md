@@ -62,8 +62,11 @@ FP8 更适合在有原生 FP8 支持的新架构上评估，例如 Ada / Hopper 
 | 吞吐档 | 256x928 | 9 | no_save | 11.66 | - | overlap 降低，需检查闪烁/跳变 |
 | 预览档 | 192x704 | 9 | no_save | 19.89 | 17.36 | 接近实时，但 4090 仍未到 25 FPS |
 | 极限预览档 | 144x512 | 9 | no_save | 38.71 | 32.27 | 4090 可实时，但质量需要重点确认 |
+| 极限预览档 + decode_resize | 144x512 | 9 | no_save | 38.56 | 34.77 | 解码时缩放，4090 端到端超过 25 FPS |
 
 Quadro RTX 6000 Turing 比 RTX 4090 早两代，且没有 Ada 的第四代 Tensor Cores。即使极限预览档在 4090 上超过 25 FPS，也不能直接推断 Quadro 上能实时。实际结论需要在目标机上跑下面的 preset。
+
+`decode_resize` 后，极限预览档的视频读入/缩放从约 `3.77s` 降到 `1.61s`，端到端不含模型加载从 `32.27 FPS` 提升到 `34.77 FPS`。
 
 ## 推荐 preset
 
@@ -150,6 +153,7 @@ conda run -n dvd python tools\realtime_sweep.py `
   --input_video test_video\depth_full_50frame.mp4 `
   --output_dir output `
   --target_fps 25 `
+  --decode_resize `
   --presets balanced throughput realtime-preview
 ```
 
@@ -163,8 +167,11 @@ conda run -n dvd python tools\realtime_sweep.py `
   --output_dir output `
   --target_fps 25 `
   --max_frames 9 `
+  --decode_resize `
   --presets realtime-preview
 ```
+
+`--decode_resize` 会在视频解码时直接缩放到推理尺寸，避免先构建完整原分辨率 tensor 再 resize。低分辨率实时档推荐打开它。
 
 `benchmark_single_video.py` 的 JSON 里现在会直接记录：
 

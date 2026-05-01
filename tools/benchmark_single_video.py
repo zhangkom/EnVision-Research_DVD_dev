@@ -104,6 +104,56 @@ def read_video_limited(video_path, max_frames=None):
     return video_tensor.unsqueeze(0), fps, total_frames
 
 
+def training_resize_shape(height, width, target_h, target_w):
+    ratio = max(target_h / height, target_w / width)
+    new_height = int(np.ceil(height * ratio))
+    new_width = int(np.ceil(width * ratio))
+    new_height = (new_height + 15) // 16 * 16
+    new_width = (new_width + 15) // 16 * 16
+    return new_height, new_width
+
+
+def read_video_limited_resized(video_path, target_h, target_w, max_frames=None):
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video: {video_path}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frames = []
+    orig_size = None
+    resized_size = None
+    while True:
+        if max_frames is not None and len(frames) >= max_frames:
+            break
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        if orig_size is None:
+            height, width = frame.shape[:2]
+            orig_size = (height, width)
+            resized_size = training_resize_shape(height, width, target_h, target_w)
+
+        if resized_size != orig_size:
+            frame = cv2.resize(
+                frame,
+                (resized_size[1], resized_size[0]),
+                interpolation=cv2.INTER_LINEAR,
+            )
+
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frames.append(frame)
+
+    cap.release()
+    if not frames:
+        raise ValueError(f"No frames decoded from video: {video_path}")
+
+    video_np = np.stack(frames)
+    video_tensor = torch.from_numpy(video_np).permute(0, 3, 1, 2).float() / 255.0
+    return video_tensor.unsqueeze(0), fps, total_frames, orig_size
+
+
 def depth_to_single_channel(depth):
     if depth.ndim == 4 and depth.shape[-1] > 1:
         return depth.mean(axis=-1)
@@ -220,6 +270,7 @@ def parse_args():
     parser.add_argument("--overlap", type=int, default=21)
     parser.add_argument("--max_frames", type=int, default=None)
     parser.add_argument("--target_fps", type=float, default=None)
+    parser.add_argument("--decode_resize", action="store_true")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", choices=sorted(DTYPES), default="fp16")
     parser.add_argument("--run_name", default=None)
@@ -258,6 +309,7 @@ def main():
         "window_size": args.window_size,
         "overlap": args.overlap,
         "preset": args.preset,
+        "decode_resize": args.decode_resize,
         "weights": weights,
         "local_model_path": args.local_model_path,
         "device_requested": args.device,
@@ -287,12 +339,19 @@ def main():
         )
 
     with timed(metrics, "video_read_resize_s"):
-        input_tensor, origin_fps, original_frames = read_video_limited(
-            args.input_video, args.max_frames
-        )
-        input_tensor, orig_size = resize_for_training_scale(
-            input_tensor, args.height, args.width
-        )
+        if args.decode_resize:
+            input_tensor, origin_fps, original_frames, orig_size = (
+                read_video_limited_resized(
+                    args.input_video, args.height, args.width, args.max_frames
+                )
+            )
+        else:
+            input_tensor, origin_fps, original_frames = read_video_limited(
+                args.input_video, args.max_frames
+            )
+            input_tensor, orig_size = resize_for_training_scale(
+                input_tensor, args.height, args.width
+            )
 
     frames = int(input_tensor.shape[1])
     metrics.update(
@@ -309,9 +368,10 @@ def main():
     )
 
     with timed(metrics, "inference_s"):
-        depth = generate_depth_sliced(
-            model, input_tensor, args.window_size, args.overlap
-        )[0]
+        with torch.inference_mode():
+            depth = generate_depth_sliced(
+                model, input_tensor, args.window_size, args.overlap
+            )[0]
 
     with timed(metrics, "resize_back_s"):
         depth = resize_depth_back(depth, orig_size)

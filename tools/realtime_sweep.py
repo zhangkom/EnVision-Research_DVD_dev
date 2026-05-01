@@ -42,6 +42,8 @@ def run_benchmark(args, preset):
     ]
     if args.max_frames is not None:
         cmd.extend(["--max_frames", str(args.max_frames)])
+    if args.decode_resize:
+        cmd.append("--decode_resize")
     if args.save_outputs:
         cmd.append("--fast_video_save")
     else:
@@ -121,6 +123,7 @@ def parse_args():
     parser.add_argument("--target_fps", type=float, default=25.0)
     parser.add_argument("--max_frames", type=int, default=None)
     parser.add_argument("--presets", nargs="+", default=list(DEFAULT_PRESETS))
+    parser.add_argument("--decode_resize", action="store_true")
     parser.add_argument("--save_outputs", action="store_true")
     parser.add_argument("--python", default=sys.executable)
     return parser.parse_args()

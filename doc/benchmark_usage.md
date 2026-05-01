@@ -69,10 +69,12 @@ conda run -n dvd python tools\realtime_sweep.py `
   --input_video test_video\depth_full_50frame.mp4 `
   --output_dir output `
   --target_fps 25 `
+  --decode_resize `
   --presets balanced throughput realtime-preview
 ```
 
 The sweep writes JSON and Markdown summaries with the measured FPS and the remaining speedup needed to hit 25 FPS.
+`--decode_resize` resizes each frame during decoding so the real-time path avoids an extra full-resolution tensor resize step.
 
 For downstream 2D-to-3D processing, save raw relative depth instead of only the color visualization:
 
