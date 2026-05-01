@@ -109,6 +109,38 @@ conda run -n dvd python tools\stage1_quality_samples.py `
   --presets balanced throughput realtime-preview speed-floor
 ```
 
+Create a quick visual contact sheet from the source video and generated depth videos:
+
+```powershell
+conda run -n dvd python tools\stage1_contact_sheet.py `
+  --videos `
+    test_video\depth_full_50frame.mp4 `
+    output\stage1_balanced_color_depth_vis.mp4 `
+    output\stage1_throughput_color_depth_vis.mp4 `
+    output\stage1_realtime_preview_color_depth_vis.mp4 `
+    output\stage1_speed_floor_color_depth_vis.mp4 `
+  --labels source balanced throughput realtime-preview speed-floor `
+  --frame_indices "0 30 60 90 120" `
+  --output output\stage1_contact_sheet.png
+```
+
+Run the persistent stage-1 batch path. This loads the model once, then processes each video/preset job and reports per-job runtime:
+
+```powershell
+conda run -n dvd python tools\stage1_batch_runner.py `
+  --weights C:\work\workspace_own\workspace_dvd\ckpt\model.safetensors `
+  --local_model_path C:\work\workspace_own\workspace_dvd\models `
+  --input_videos test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --target_fps 25 `
+  --decode_resize `
+  --no_resize_back `
+  --presets realtime-preview speed-floor `
+  --write_job_json
+```
+
+Add `--save_video`, `--save_depth_npy`, or `--save_depth_png16` when you want batch outputs written for downstream review. Without those flags the batch runner measures processing speed only.
+
 Check 4090 acceleration dependencies:
 
 ```powershell

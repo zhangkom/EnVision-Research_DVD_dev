@@ -83,9 +83,56 @@ conda run -n dvd python tools\stage1_quality_samples.py `
 - `*_depth_png16/`
 - benchmark JSON
 
+已生成快速审片拼图：
+
+- `output/stage1_contact_sheet.png`
+
+这张图把源视频、`balanced`、`throughput`、`realtime-preview`、`speed-floor` 在相同帧位拼到一起，适合先快速判断低分辨率深度是否有明显失真、闪烁或边缘问题。
+
 下一步需要人工检查 `realtime-preview` 和 `speed-floor` 的 2D 转 3D 效果。如果 `144x512` 能接受，第一阶段已有可交付实时档；如果不能接受，则优先冲 `throughput`。
 
-### 4. 第一阶段加速环境检测
+### 4. 常驻 batch runner
+
+已新增：
+
+- `tools/stage1_batch_runner.py`
+
+用途：
+
+- 只加载一次模型。
+- 连续处理多个视频或多个 preset。
+- 分开记录 `model_load_s`、每个 job 的 decode/inference/save 耗时。
+- 更接近后续服务化/批处理形态。
+
+命令：
+
+```powershell
+conda run -n dvd python tools\stage1_batch_runner.py `
+  --weights C:\work\workspace_own\workspace_dvd\ckpt\model.safetensors `
+  --local_model_path C:\work\workspace_own\workspace_dvd\models `
+  --input_videos test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --target_fps 25 `
+  --decode_resize `
+  --no_resize_back `
+  --presets realtime-preview speed-floor `
+  --write_job_json
+```
+
+结果文件：`output/stage1_batch_20260501_092751.md`
+
+| preset | frames | depth size | inference FPS | runtime FPS，不含模型加载 |
+| --- | ---: | --- | ---: | ---: |
+| realtime-preview | 1000 | 144x512 | 38.97 | 36.28 |
+| speed-floor | 1000 | 112x384 | 69.35 | 61.76 |
+
+结论：
+
+- 模型加载约 `11.33s`，属于一次性启动成本。
+- 常驻形态下 `realtime-preview` 和 `speed-floor` 都稳定超过 25 FPS。
+- 现在第一阶段瓶颈已经从“能否实时”转为“`144x512` 或 `112x384` 的深度质量是否满足 2D 转 3D”。
+
+### 5. 第一阶段加速环境检测
 
 命令：
 
@@ -114,7 +161,7 @@ conda run -n dvd python tools\check_stage1_acceleration.py
 - FP8 dtype 可见，但还没有可接受的 FP8 量化/导出链路。
 - TensorRT FP16/FP8 当前环境缺依赖，下一步需要先安装 TensorRT/ONNX 相关包。
 
-### 5. PyTorch compile 初测
+### 6. PyTorch compile 初测
 
 已新增：
 
@@ -140,7 +187,7 @@ conda run -n dvd python tools\check_stage1_acceleration.py
 
 结论：当前 `torch.compile` 对这个链路收益很小，不应作为第一阶段主优化。
 
-### 6. VAE channels-last 初测
+### 7. VAE channels-last 初测
 
 `--vae_channels_last_3d` 已加为实验项，但当前模型直接应用会失败：
 
@@ -156,7 +203,7 @@ RuntimeError('required rank 5 tensor to use channels_last_3d format')
 
 - `realtime-preview`
 - `144x512`
-- `36.53 FPS`
+- `36.28 FPS` 常驻 runtime，不含模型加载
 - 不回原分辨率输出深度
 
 是否可交付取决于质量：
@@ -166,8 +213,8 @@ RuntimeError('required rank 5 tensor to use channels_last_3d format')
 
 ## 下一步
 
-1. 人工检查 `output/stage1_realtime_preview_color_depth_vis.mp4` 和下游 2D 转 3D 效果。
-2. 实现服务常驻 runner：一次加载模型，连续处理视频，输出 raw depth。
+1. 人工检查 `output/stage1_contact_sheet.png`、`output/stage1_realtime_preview_color_depth_vis.mp4` 和下游 2D 转 3D 效果。
+2. 基于 `tools/stage1_batch_runner.py` 固定第一阶段输入输出协议。
 3. 安装 TensorRT/ONNX 环境，尝试固定 shape TensorRT FP16。
 4. 如果 `throughput` 质量明显更好，优先针对 `192x704` 做 TensorRT/INT8/关键帧传播。
 5. 如果低分辨率都不满足质量，启动 DVD teacher 蒸馏轻量模型。

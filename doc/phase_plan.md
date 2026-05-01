@@ -17,6 +17,8 @@
 当前 4090 已知结果：
 
 - `realtime-preview + decode_resize`，实际处理尺寸 `144x512`，1000 帧端到端不含模型加载 `35.11 FPS`。
+- `realtime-preview + decode_resize + no_resize_back`，常驻 batch runtime `36.28 FPS`。
+- `speed-floor + decode_resize + no_resize_back`，常驻 batch runtime `61.76 FPS`。
 - 深拆后，`model.pipe` 窗口推理占 inference `93.4%`，是第一瓶颈。
 - overlap 对齐约占 inference `6.4%`，不是主瓶颈。
 
@@ -84,6 +86,8 @@ conda run -n dvd python tools\realtime_sweep.py `
 - 前后景排序。
 - 下游 2D 转 3D 效果。
 
+已补充 `tools/stage1_contact_sheet.py`，可把源视频和多个深度结果按固定帧位拼成 `output/stage1_contact_sheet.png` 做快速审片。
+
 ### 3. 去掉不必要后处理
 
 已实现：
@@ -96,7 +100,23 @@ conda run -n dvd python tools\realtime_sweep.py `
 
 当前结果见 `doc/stage1_results.md`。
 
-### 4. 编译和量化
+### 4. 常驻 batch 形态
+
+已实现：
+
+- `tools/stage1_batch_runner.py`
+- 一次加载模型，连续处理多个视频或 preset。
+- per-job 记录 decode、inference、resize-back、save、runtime FPS。
+- 支持 `--save_video`、`--save_depth_npy`、`--save_depth_png16` 输出下游所需深度。
+
+当前常驻测试：
+
+| preset | depth size | runtime FPS |
+| --- | --- | ---: |
+| realtime-preview | 144x512 | 36.28 |
+| speed-floor | 112x384 | 61.76 |
+
+### 5. 编译和量化
 
 优先顺序：
 
