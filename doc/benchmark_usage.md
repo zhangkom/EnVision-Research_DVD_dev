@@ -50,6 +50,7 @@ quality          480x640 target, window 81, overlap 21
 balanced         256x640 target, window 81, overlap 21
 throughput       192x640 target, window 81, overlap 9
 realtime-preview 128x512 target, window 81, overlap 9
+speed-floor      96x384 target, window 81, overlap 9
 ```
 
 See `doc/optimization_strategy.md` for the GGUF/FP8 analysis and the real-time benchmark notes.
@@ -70,7 +71,7 @@ conda run -n dvd python tools\realtime_sweep.py `
   --output_dir output `
   --target_fps 25 `
   --decode_resize `
-  --presets balanced throughput realtime-preview
+  --presets balanced throughput realtime-preview speed-floor
 ```
 
 The sweep writes JSON and Markdown summaries with the measured FPS and the remaining speedup needed to hit 25 FPS.

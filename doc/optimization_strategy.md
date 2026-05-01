@@ -154,7 +154,7 @@ conda run -n dvd python tools\realtime_sweep.py `
   --output_dir output `
   --target_fps 25 `
   --decode_resize `
-  --presets balanced throughput realtime-preview
+  --presets balanced throughput realtime-preview speed-floor
 ```
 
 快速冒烟测试可以只跑 9 帧：

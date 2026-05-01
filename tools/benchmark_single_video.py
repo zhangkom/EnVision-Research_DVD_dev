@@ -61,6 +61,12 @@ PRESETS = {
         "window_size": 81,
         "overlap": 9,
     },
+    "speed-floor": {
+        "height": 96,
+        "width": 384,
+        "window_size": 81,
+        "overlap": 9,
+    },
 }
 
 
