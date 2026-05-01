@@ -86,13 +86,15 @@ conda run -n dvd python tools\realtime_sweep.py `
 
 ### 3. 去掉不必要后处理
 
-待实现：
+已实现：
 
 - `--no_resize_back`
 - 可选只输出推理尺寸深度。
 - 可选跳过可视化视频，只输出 raw depth。
 
 目标是把已经超过 25 FPS 的低分辨率档位留出更多速度余量。
+
+当前结果见 `doc/stage1_results.md`。
 
 ### 4. 编译和量化
 
@@ -105,6 +107,12 @@ conda run -n dvd python tools\realtime_sweep.py `
 5. 蒸馏轻量模型。
 
 FP8 只作为 4090 第一阶段实验项。若启用，必须和 FP16 teacher 对比深度稳定性，不能只看速度。
+
+当前环境检测结果：
+
+- `torch.compile` 可用，但初测收益很小。
+- TensorRT / torch_tensorrt / ONNX 当前 conda 环境不可见，需要安装后再做 FP16/FP8 engine 实验。
+- torch float8 dtype 可见，但还缺真实 DVD FP8 量化/导出路径。
 
 ## 第二阶段迁移检查表
 

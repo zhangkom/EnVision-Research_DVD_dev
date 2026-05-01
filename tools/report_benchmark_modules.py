@@ -5,6 +5,7 @@ from pathlib import Path
 
 MODULE_KEYS = [
     ("model_load_s", "model load"),
+    ("stage1_optimize_model_s", "stage1 optimize model"),
     ("video_decode_s", "video decode"),
     ("video_resize_s", "video resize"),
     ("video_read_resize_s", "video read/resize"),

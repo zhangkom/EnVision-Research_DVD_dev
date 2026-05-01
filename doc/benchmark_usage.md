@@ -81,6 +81,39 @@ conda run -n dvd python tools\realtime_sweep.py `
 
 The sweep writes JSON and Markdown summaries with the measured FPS and the remaining speedup needed to hit 25 FPS.
 `--decode_resize` resizes each frame during decoding so the real-time path avoids an extra full-resolution tensor resize step.
+Use `--no_resize_back` when the downstream 2D-to-3D path can consume low-resolution depth directly:
+
+```powershell
+conda run -n dvd python tools\realtime_sweep.py `
+  --weights C:\work\workspace_own\workspace_dvd\ckpt\model.safetensors `
+  --local_model_path C:\work\workspace_own\workspace_dvd\models `
+  --input_video test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --target_fps 25 `
+  --decode_resize `
+  --no_resize_back `
+  --presets balanced throughput realtime-preview speed-floor
+```
+
+Generate stage-1 quality samples:
+
+```powershell
+conda run -n dvd python tools\stage1_quality_samples.py `
+  --weights C:\work\workspace_own\workspace_dvd\ckpt\model.safetensors `
+  --local_model_path C:\work\workspace_own\workspace_dvd\models `
+  --input_video test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --target_fps 25 `
+  --max_frames 121 `
+  --no_resize_back `
+  --presets balanced throughput realtime-preview speed-floor
+```
+
+Check 4090 acceleration dependencies:
+
+```powershell
+conda run -n dvd python tools\check_stage1_acceleration.py
+```
 
 For downstream 2D-to-3D processing, save raw relative depth instead of only the color visualization:
 

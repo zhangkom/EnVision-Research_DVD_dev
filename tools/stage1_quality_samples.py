@@ -18,8 +18,8 @@ def parse_metrics(stdout):
     return json.loads(stdout[start:])
 
 
-def run_benchmark(args, preset):
-    run_name = f"sweep_{preset.replace('-', '_')}"
+def run_sample(args, preset):
+    run_name = f"stage1_{preset.replace('-', '_')}"
     cmd = [
         args.python,
         str(REPO_ROOT / "tools" / "benchmark_single_video.py"),
@@ -39,31 +39,15 @@ def run_benchmark(args, preset):
         str(args.target_fps),
         "--run_name",
         run_name,
+        "--decode_resize",
+        "--fast_video_save",
+        "--save_depth_npy",
+        "--save_depth_png16",
     ]
     if args.max_frames is not None:
         cmd.extend(["--max_frames", str(args.max_frames)])
-    if args.decode_resize:
-        cmd.append("--decode_resize")
     if args.no_resize_back:
         cmd.append("--no_resize_back")
-    if args.compile_dit:
-        cmd.extend(
-            [
-                "--compile_dit",
-                "--compile_backend",
-                args.compile_backend,
-                "--compile_mode",
-                args.compile_mode,
-            ]
-        )
-    if args.vae_channels_last_3d:
-        cmd.append("--vae_channels_last_3d")
-    if args.warmup_inference_runs:
-        cmd.extend(["--warmup_inference_runs", str(args.warmup_inference_runs)])
-    if args.save_outputs:
-        cmd.append("--fast_video_save")
-    else:
-        cmd.append("--no_save")
 
     print("Running:", " ".join(cmd), flush=True)
     result = subprocess.run(
@@ -81,82 +65,70 @@ def run_benchmark(args, preset):
     metrics = parse_metrics(result.stdout)
     print(
         (
-            f"{preset}: inference {metrics['inference_fps']:.2f} FPS, "
-            f"e2e {metrics['end_to_end_fps_excluding_model_load']:.2f} FPS, "
-            f"runtime {metrics.get('runtime_fps_excluding_model_load_and_setup', metrics['end_to_end_fps_excluding_model_load']):.2f} FPS, "
-            f"speedup needed {metrics['required_end_to_end_speedup_to_target']:.2f}x"
+            f"{preset}: e2e {metrics['end_to_end_fps_excluding_model_load']:.2f} FPS, "
+            f"depth {metrics['output_depth_height']}x{metrics['output_depth_width']}"
         ),
         flush=True,
     )
     return metrics
 
 
-def write_reports(results, output_dir, target_fps):
+def write_summary(results, output_dir):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     summary = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
-        "target_fps": target_fps,
         "results": results,
     }
-    json_path = output_path / f"realtime_sweep_{timestamp}.json"
+    json_path = output_path / f"stage1_quality_samples_{timestamp}.json"
     json_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     lines = [
-        "# Realtime Sweep",
+        "# Stage 1 Quality Samples",
         "",
-        f"Target FPS: {target_fps:.2f}",
-        "",
-        "| preset | resized | frames | inference FPS | e2e FPS | runtime FPS | e2e speedup needed | peak reserved GB | met realtime |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| preset | frames | resized | output depth | e2e FPS | video | npy | png16 |",
+        "| --- | ---: | --- | --- | ---: | --- | --- | --- |",
     ]
     for item in results:
         resized = f"{item['resized_height']}x{item['resized_width']}"
+        output_depth = f"{item['output_depth_height']}x{item['output_depth_width']}"
         lines.append(
             (
-                f"| {item.get('preset') or '-'} | {resized} | {item['bench_frames']} | "
-                f"{item['inference_fps']:.2f} | "
+                f"| {item.get('preset') or '-'} | {item['bench_frames']} | "
+                f"{resized} | {output_depth} | "
                 f"{item['end_to_end_fps_excluding_model_load']:.2f} | "
-                f"{item.get('runtime_fps_excluding_model_load_and_setup', item['end_to_end_fps_excluding_model_load']):.2f} | "
-                f"{item['required_end_to_end_speedup_to_target']:.2f}x | "
-                f"{item.get('cuda_peak_reserved_gb', 0):.2f} | "
-                f"{'yes' if item['realtime_met_excluding_model_load'] else 'no'} |"
+                f"{item.get('output_path', '')} | "
+                f"{item.get('depth_npy_path', '')} | "
+                f"{item.get('depth_png16_dir', '')} |"
             )
         )
 
-    md_path = output_path / f"realtime_sweep_{timestamp}.md"
+    md_path = output_path / f"stage1_quality_samples_{timestamp}.md"
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return json_path, md_path
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run DVD realtime preset sweeps.")
+    parser = argparse.ArgumentParser(description="Generate stage-1 quality samples.")
     parser.add_argument("--weights", default="ckpt/model.safetensors")
     parser.add_argument("--local_model_path", default="models")
     parser.add_argument("--input_video", default="test_video/depth_full_50frame.mp4")
     parser.add_argument("--output_dir", default="output")
     parser.add_argument("--dtype", default="fp16")
     parser.add_argument("--target_fps", type=float, default=25.0)
-    parser.add_argument("--max_frames", type=int, default=None)
+    parser.add_argument("--max_frames", type=int, default=121)
     parser.add_argument("--presets", nargs="+", default=list(DEFAULT_PRESETS))
-    parser.add_argument("--decode_resize", action="store_true")
     parser.add_argument("--no_resize_back", action="store_true")
-    parser.add_argument("--compile_dit", action="store_true")
-    parser.add_argument("--compile_backend", default="inductor")
-    parser.add_argument("--compile_mode", default="reduce-overhead")
-    parser.add_argument("--vae_channels_last_3d", action="store_true")
-    parser.add_argument("--warmup_inference_runs", type=int, default=0)
-    parser.add_argument("--save_outputs", action="store_true")
     parser.add_argument("--python", default=sys.executable)
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    results = [run_benchmark(args, preset) for preset in args.presets]
-    json_path, md_path = write_reports(results, args.output_dir, args.target_fps)
+    results = [run_sample(args, preset) for preset in args.presets]
+    json_path, md_path = write_summary(results, args.output_dir)
     print(f"Wrote {json_path}")
     print(f"Wrote {md_path}")
 

@@ -264,6 +264,39 @@ def load_model(weights, yaml_args, device, dtype, local_model_path):
     return model
 
 
+def apply_stage1_optimizations(model, args, metrics):
+    metrics["compile_dit_requested"] = bool(args.compile_dit)
+    metrics["vae_channels_last_3d_requested"] = bool(args.vae_channels_last_3d)
+
+    if args.vae_channels_last_3d:
+        try:
+            model.pipe.vae = model.pipe.vae.to(memory_format=torch.channels_last_3d)
+            metrics["vae_channels_last_3d_applied"] = True
+        except Exception as exc:
+            metrics["vae_channels_last_3d_applied"] = False
+            metrics["vae_channels_last_3d_error"] = repr(exc)
+
+    if args.compile_dit:
+        if not hasattr(torch, "compile"):
+            metrics["compile_dit_applied"] = False
+            metrics["compile_dit_error"] = "torch.compile is not available."
+            return model
+        try:
+            compile_kwargs = {
+                "mode": args.compile_mode,
+                "backend": args.compile_backend,
+            }
+            model.pipe.dit = torch.compile(model.pipe.dit, **compile_kwargs)
+            metrics["compile_dit_applied"] = True
+            metrics["compile_dit_backend"] = args.compile_backend
+            metrics["compile_dit_mode"] = args.compile_mode
+        except Exception as exc:
+            metrics["compile_dit_applied"] = False
+            metrics["compile_dit_error"] = repr(exc)
+
+    return model
+
+
 def generate_depth_sliced_profiled(
     model, input_rgb, window_size=45, overlap=9, scale_only=False
 ):
@@ -388,7 +421,13 @@ def parse_args():
     parser.add_argument("--max_frames", type=int, default=None)
     parser.add_argument("--target_fps", type=float, default=None)
     parser.add_argument("--decode_resize", action="store_true")
+    parser.add_argument("--no_resize_back", action="store_true")
     parser.add_argument("--profile_modules", action="store_true")
+    parser.add_argument("--compile_dit", action="store_true")
+    parser.add_argument("--compile_backend", default="inductor")
+    parser.add_argument("--compile_mode", default="reduce-overhead")
+    parser.add_argument("--vae_channels_last_3d", action="store_true")
+    parser.add_argument("--warmup_inference_runs", type=int, default=0)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", choices=sorted(DTYPES), default="fp16")
     parser.add_argument("--run_name", default=None)
@@ -428,7 +467,9 @@ def main():
         "overlap": args.overlap,
         "preset": args.preset,
         "decode_resize": args.decode_resize,
+        "no_resize_back": args.no_resize_back,
         "profile_modules": args.profile_modules,
+        "warmup_inference_runs": args.warmup_inference_runs,
         "weights": weights,
         "local_model_path": args.local_model_path,
         "device_requested": args.device,
@@ -456,6 +497,9 @@ def main():
             DTYPES[args.dtype],
             args.local_model_path,
         )
+
+    with timed(metrics, "stage1_optimize_model_s"):
+        model = apply_stage1_optimizations(model, args, metrics)
 
     if args.decode_resize:
         with timed(metrics, "video_decode_s"):
@@ -492,6 +536,15 @@ def main():
         }
     )
 
+    metrics["warmup_inference_s"] = 0.0
+    if args.warmup_inference_runs > 0:
+        with timed(metrics, "warmup_inference_s"):
+            with torch.inference_mode():
+                for _ in range(args.warmup_inference_runs):
+                    _ = generate_depth_sliced(
+                        model, input_tensor, args.window_size, args.overlap
+                    )
+
     with timed(metrics, "inference_s"):
         with torch.inference_mode():
             if args.profile_modules:
@@ -505,8 +558,16 @@ def main():
                     model, input_tensor, args.window_size, args.overlap
                 )[0]
 
-    with timed(metrics, "resize_back_s"):
-        depth = resize_depth_back(depth, orig_size)
+    if args.no_resize_back:
+        metrics["resize_back_s"] = 0.0
+        metrics["resize_back_skipped"] = True
+    else:
+        with timed(metrics, "resize_back_s"):
+            depth = resize_depth_back(depth, orig_size)
+        metrics["resize_back_skipped"] = False
+
+    metrics["output_depth_height"] = int(depth.shape[1])
+    metrics["output_depth_width"] = int(depth.shape[2])
 
     stem = args.run_name or Path(args.input_video).stem
     if not args.no_save:
@@ -542,6 +603,7 @@ def main():
         metrics[k]
         for k in (
             "model_load_s",
+            "stage1_optimize_model_s",
             "video_read_resize_s",
             "inference_s",
             "resize_back_s",
@@ -554,10 +616,22 @@ def main():
     metrics["end_to_end_fps_excluding_model_load"] = frames / (
         metrics["total_s"] - metrics["model_load_s"]
     )
+    runtime_s_excluding_setup = (
+        metrics["total_s"]
+        - metrics["model_load_s"]
+        - metrics.get("stage1_optimize_model_s", 0.0)
+    )
+    metrics["runtime_s_excluding_model_load_and_setup"] = runtime_s_excluding_setup
+    metrics["runtime_fps_excluding_model_load_and_setup"] = (
+        frames / runtime_s_excluding_setup
+    )
     target_fps = metrics["target_fps"]
     metrics["inference_realtime_ratio"] = metrics["inference_fps"] / target_fps
     metrics["end_to_end_realtime_ratio_excluding_model_load"] = (
         metrics["end_to_end_fps_excluding_model_load"] / target_fps
+    )
+    metrics["runtime_realtime_ratio_excluding_model_load_and_setup"] = (
+        metrics["runtime_fps_excluding_model_load_and_setup"] / target_fps
     )
     metrics["required_inference_speedup_to_target"] = target_fps / metrics[
         "inference_fps"
@@ -565,9 +639,15 @@ def main():
     metrics["required_end_to_end_speedup_to_target"] = target_fps / metrics[
         "end_to_end_fps_excluding_model_load"
     ]
+    metrics["required_runtime_speedup_to_target"] = target_fps / metrics[
+        "runtime_fps_excluding_model_load_and_setup"
+    ]
     metrics["realtime_met_inference_only"] = metrics["inference_fps"] >= target_fps
     metrics["realtime_met_excluding_model_load"] = (
         metrics["end_to_end_fps_excluding_model_load"] >= target_fps
+    )
+    metrics["realtime_met_excluding_model_load_and_setup"] = (
+        metrics["runtime_fps_excluding_model_load_and_setup"] >= target_fps
     )
     if torch.cuda.is_available():
         metrics["cuda_peak_allocated_gb"] = round(
