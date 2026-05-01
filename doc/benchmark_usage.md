@@ -16,7 +16,12 @@ EnVision-Research_DVD_dev/
 └── output/
 ```
 
-For Quadro RTX 6000 Turing, use FP16 rather than BF16:
+The current plan has two stages:
+
+- Stage 1 optimizes for the local RTX 4090 as the delivery target.
+- Stage 2 ports the selected path to Quadro RTX 6000 Turing later.
+
+Use FP16 as the baseline dtype for both stages:
 
 ```powershell
 conda run -n dvd python tools\benchmark_single_video.py `
@@ -55,7 +60,7 @@ speed-floor      96x384 target, window 81, overlap 9
 
 See `doc/optimization_strategy.md` for the GGUF/FP8 analysis and the real-time benchmark notes.
 
-For the real-time goal, run the sweep helper on the target GPU:
+For the stage-1 RTX 4090 real-time goal, run the sweep helper locally:
 
 ```powershell
 conda run -n dvd python tools\check_runtime_capability.py
