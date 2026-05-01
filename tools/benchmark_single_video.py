@@ -58,6 +58,12 @@ PRESETS = {
         "window_size": 81,
         "overlap": 9,
     },
+    "realtime": {
+        "height": 160,
+        "width": 512,
+        "window_size": 81,
+        "overlap": 9,
+    },
     "realtime-preview": {
         "height": 128,
         "width": 512,

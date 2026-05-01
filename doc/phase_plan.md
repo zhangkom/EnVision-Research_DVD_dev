@@ -17,6 +17,7 @@
 当前 4090 已知结果：
 
 - `realtime-preview + decode_resize`，实际处理尺寸 `144x512`，1000 帧端到端不含模型加载 `35.11 FPS`。
+- `realtime + decode_resize + no_resize_back`，实际处理尺寸 `160x576`，1000 帧常驻 batch runtime `27.49 FPS`。
 - `realtime-preview + decode_resize + no_resize_back`，常驻 batch runtime `36.28 FPS`。
 - `speed-floor + decode_resize + no_resize_back`，常驻 batch runtime `61.76 FPS`。
 - 深拆后，`model.pipe` 窗口推理占 inference `93.4%`，是第一瓶颈。
@@ -24,7 +25,7 @@
 
 第一阶段优化重点：
 
-1. 先确认 `144x512` 实时档的 2D 转 3D 质量是否能接受。
+1. 先确认 `160x576` 和 `144x512` 实时档的 2D 转 3D 质量是否能接受。
 2. 增加 `--no_resize_back`，让下游直接吃低分辨率深度或统一后处理。
 3. 跑完整分辨率矩阵：`balanced`、`throughput`、`realtime-preview`、`speed-floor`。
 4. 尝试 PyTorch 层优化：固定 shape、`torch.compile`、SDPA/xFormers、VAE channels-last。
@@ -67,7 +68,7 @@ conda run -n dvd python tools\realtime_sweep.py `
   --output_dir output `
   --target_fps 25 `
   --decode_resize `
-  --presets balanced throughput realtime-preview speed-floor
+  --presets balanced throughput realtime realtime-preview speed-floor
 ```
 
 ### 2. 输出质量样本
@@ -113,6 +114,7 @@ conda run -n dvd python tools\realtime_sweep.py `
 
 | preset | depth size | runtime FPS |
 | --- | --- | ---: |
+| realtime | 160x576 | 27.49 |
 | realtime-preview | 144x512 | 36.28 |
 | speed-floor | 112x384 | 61.76 |
 

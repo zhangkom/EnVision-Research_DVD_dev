@@ -54,6 +54,7 @@ Common speed/quality presets are available through `--preset`:
 quality          480x640 target, window 81, overlap 21
 balanced         256x640 target, window 81, overlap 21
 throughput       192x640 target, window 81, overlap 9
+realtime         160x512 target, window 81, overlap 9
 realtime-preview 128x512 target, window 81, overlap 9
 speed-floor      96x384 target, window 81, overlap 9
 ```
@@ -76,7 +77,7 @@ conda run -n dvd python tools\realtime_sweep.py `
   --output_dir output `
   --target_fps 25 `
   --decode_resize `
-  --presets balanced throughput realtime-preview speed-floor
+  --presets balanced throughput realtime realtime-preview speed-floor
 ```
 
 The sweep writes JSON and Markdown summaries with the measured FPS and the remaining speedup needed to hit 25 FPS.
@@ -92,7 +93,7 @@ conda run -n dvd python tools\realtime_sweep.py `
   --target_fps 25 `
   --decode_resize `
   --no_resize_back `
-  --presets balanced throughput realtime-preview speed-floor
+  --presets balanced throughput realtime realtime-preview speed-floor
 ```
 
 Generate stage-1 quality samples:
@@ -106,7 +107,7 @@ conda run -n dvd python tools\stage1_quality_samples.py `
   --target_fps 25 `
   --max_frames 121 `
   --no_resize_back `
-  --presets balanced throughput realtime-preview speed-floor
+  --presets balanced throughput realtime realtime-preview speed-floor
 ```
 
 Create a quick visual contact sheet from the source video and generated depth videos:
@@ -117,9 +118,10 @@ conda run -n dvd python tools\stage1_contact_sheet.py `
     test_video\depth_full_50frame.mp4 `
     output\stage1_balanced_color_depth_vis.mp4 `
     output\stage1_throughput_color_depth_vis.mp4 `
+    output\stage1_realtime_color_depth_vis.mp4 `
     output\stage1_realtime_preview_color_depth_vis.mp4 `
     output\stage1_speed_floor_color_depth_vis.mp4 `
-  --labels source balanced throughput realtime-preview speed-floor `
+  --labels source balanced throughput realtime realtime-preview speed-floor `
   --frame_indices "0 30 60 90 120" `
   --output output\stage1_contact_sheet.png
 ```
@@ -135,7 +137,7 @@ conda run -n dvd python tools\stage1_batch_runner.py `
   --target_fps 25 `
   --decode_resize `
   --no_resize_back `
-  --presets realtime-preview speed-floor `
+  --presets realtime realtime-preview speed-floor `
   --write_job_json
 ```
 

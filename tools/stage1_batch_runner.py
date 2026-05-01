@@ -29,7 +29,7 @@ from tools.benchmark_single_video import (  # noqa: E402
 )
 
 
-DEFAULT_PRESETS = ("realtime-preview", "speed-floor")
+DEFAULT_PRESETS = ("realtime", "realtime-preview", "speed-floor")
 
 
 def sanitize_name(value):

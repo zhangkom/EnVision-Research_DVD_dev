@@ -42,12 +42,14 @@ conda run -n dvd python tools\realtime_sweep.py `
 | --- | --- | ---: | ---: | ---: | --- |
 | balanced | 256x928 | 1000 | 8.59 | 8.44 | 不实时，质量候选 |
 | throughput | 192x704 | 1000 | 20.06 | 19.36 | 接近实时，还差约 1.29x |
+| realtime | 160x576 | 1000 | 29.85 | 28.47 | 实时，当前优先质量候选 |
 | realtime-preview | 144x512 | 1000 | 38.79 | 36.53 | 实时，需质量评估 |
 | speed-floor | 112x384 | 1000 | 67.34 | 61.38 | 实时，质量风险最高 |
 
 第一阶段速度结论：
 
-- `realtime-preview` 已经满足 25 FPS。
+- `realtime` 已经满足 25 FPS，而且比 `realtime-preview` 多约 25% 像素。
+- `realtime-preview` 速度余量更大。
 - `speed-floor` 有较大速度余量。
 - `throughput` 还差约 1.29x，后续可通过 TensorRT/量化/关键帧传播继续冲。
 - `balanced` 当前离实时较远，更适合作为质量参考或 teacher。
@@ -74,6 +76,7 @@ conda run -n dvd python tools\stage1_quality_samples.py `
 | --- | ---: | --- | ---: | --- |
 | balanced | 121 | 256x928 | 8.28 | `output/stage1_balanced_color_depth_vis.mp4` |
 | throughput | 121 | 192x704 | 14.79 | `output/stage1_throughput_color_depth_vis.mp4` |
+| realtime | 121 | 160x576 | 20.18 | `output/stage1_realtime_color_depth_vis.mp4` |
 | realtime-preview | 121 | 144x512 | 26.56 | `output/stage1_realtime_preview_color_depth_vis.mp4` |
 | speed-floor | 121 | 112x384 | 40.69 | `output/stage1_speed_floor_color_depth_vis.mp4` |
 
@@ -87,9 +90,9 @@ conda run -n dvd python tools\stage1_quality_samples.py `
 
 - `output/stage1_contact_sheet.png`
 
-这张图把源视频、`balanced`、`throughput`、`realtime-preview`、`speed-floor` 在相同帧位拼到一起，适合先快速判断低分辨率深度是否有明显失真、闪烁或边缘问题。
+这张图把源视频、`balanced`、`throughput`、`realtime`、`realtime-preview`、`speed-floor` 在相同帧位拼到一起，适合先快速判断低分辨率深度是否有明显失真、闪烁或边缘问题。
 
-下一步需要人工检查 `realtime-preview` 和 `speed-floor` 的 2D 转 3D 效果。如果 `144x512` 能接受，第一阶段已有可交付实时档；如果不能接受，则优先冲 `throughput`。
+下一步需要人工检查 `realtime`、`realtime-preview` 和 `speed-floor` 的 2D 转 3D 效果。如果 `160x576` 能接受，第一阶段优先用 `realtime`；如果质量不够但 `144x512` 能接受，则用 `realtime-preview`；如果两者都不够，则优先冲 `throughput`。
 
 ### 4. 常驻 batch runner
 
@@ -119,10 +122,14 @@ conda run -n dvd python tools\stage1_batch_runner.py `
   --write_job_json
 ```
 
-结果文件：`output/stage1_batch_20260501_092751.md`
+结果文件：
+
+- `output/stage1_batch_20260501_093536.md`
+- `output/stage1_batch_20260501_092751.md`
 
 | preset | frames | depth size | inference FPS | runtime FPS，不含模型加载 |
 | --- | ---: | --- | ---: | ---: |
+| realtime | 1000 | 160x576 | 29.12 | 27.49 |
 | realtime-preview | 1000 | 144x512 | 38.97 | 36.28 |
 | speed-floor | 1000 | 112x384 | 69.35 | 61.76 |
 
@@ -199,17 +206,17 @@ RuntimeError('required rank 5 tensor to use channels_last_3d format')
 
 ## 第一阶段当前判断
 
-第一阶段已经有一个可跑通实时档：
+第一阶段已经有一个更优先的可跑通实时档：
 
-- `realtime-preview`
-- `144x512`
-- `36.28 FPS` 常驻 runtime，不含模型加载
+- `realtime`
+- `160x576`
+- `27.49 FPS` 常驻 runtime，不含模型加载
 - 不回原分辨率输出深度
 
 是否可交付取决于质量：
 
-- 如果 `144x512` 深度对 2D 转 3D 效果可接受，第一阶段主线就是补齐服务化和输出协议。
-- 如果 `144x512` 质量不够，下一优先级是把 `throughput 192x704` 从 `19.36 FPS` 提升到 25 FPS。
+- 如果 `160x576` 深度对 2D 转 3D 效果可接受，第一阶段主线就是补齐服务化和输出协议。
+- 如果 `160x576` 质量不够，下一优先级是把 `throughput 192x704` 从 `19.36 FPS` 提升到 25 FPS。
 
 ## 下一步
 
