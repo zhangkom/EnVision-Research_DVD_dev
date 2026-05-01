@@ -19,7 +19,10 @@ from safetensors.torch import load_file
 
 from examples.wanvideo.model_training.WanTrainingModule import WanTrainingModule
 from test_script.test_single_video import (
+    compute_scale_and_shift,
     generate_depth_sliced,
+    get_window_index,
+    pad_time_mod4,
     resize_depth_back,
     resize_for_training_scale,
     save_results,
@@ -261,6 +264,114 @@ def load_model(weights, yaml_args, device, dtype, local_model_path):
     return model
 
 
+def generate_depth_sliced_profiled(
+    model, input_rgb, window_size=45, overlap=9, scale_only=False
+):
+    B, T, C, H, W = input_rgb.shape
+    depth_windows = get_window_index(T, window_size, overlap)
+    print(f"depth_windows {depth_windows}")
+
+    profile = {
+        "window_count": len(depth_windows),
+        "window_prepare_s": 0.0,
+        "model_pipe_s": 0.0,
+        "overlap_alignment_s": 0.0,
+        "window_pipe_s": [],
+    }
+    depth_res_list = []
+
+    for start, end in depth_windows:
+        prepare_start = time.perf_counter()
+        input_rgb_slice = input_rgb[:, start:end]
+        input_rgb_slice, origin_T = pad_time_mod4(input_rgb_slice)
+        input_frame = input_rgb_slice.shape[1]
+        input_height, input_width = input_rgb_slice.shape[-2:]
+        profile["window_prepare_s"] += time.perf_counter() - prepare_start
+
+        cuda_sync()
+        pipe_start = time.perf_counter()
+        extra_image_frame_index = torch.ones([B, input_frame]).to(model.pipe.device)
+        outputs = model.pipe(
+            prompt=[""] * B,
+            negative_prompt=[""] * B,
+            mode=model.args.mode,
+            height=input_height,
+            width=input_width,
+            num_frames=input_frame,
+            batch_size=B,
+            input_image=input_rgb_slice[:, 0],
+            extra_images=input_rgb_slice,
+            extra_image_frame_index=extra_image_frame_index,
+            input_video=input_rgb_slice,
+            cfg_scale=1,
+            seed=0,
+            tiled=False,
+            denoise_step=model.args.denoise_step,
+        )
+        cuda_sync()
+        pipe_s = time.perf_counter() - pipe_start
+        profile["model_pipe_s"] += pipe_s
+        profile["window_pipe_s"].append(
+            {"start": int(start), "end": int(end), "seconds": pipe_s}
+        )
+        depth_res_list.append(outputs["depth"][:, :origin_T])
+
+    align_start = time.perf_counter()
+    depth_list_aligned = None
+    prev_end = None
+    for i, (t, (start, end)) in enumerate(zip(depth_res_list, depth_windows)):
+        if i == 0:
+            depth_list_aligned = t
+            prev_end = end
+            continue
+
+        curr_start = start
+        real_overlap = prev_end - curr_start
+
+        if real_overlap > 0:
+            ref_frames = depth_list_aligned[:, -real_overlap:]
+            curr_frames = t[:, :real_overlap]
+
+            if scale_only:
+                scale = np.sum(curr_frames * ref_frames) / (
+                    np.sum(curr_frames * curr_frames) + 1e-6
+                )
+                shift = 0.0
+            else:
+                scale, shift = compute_scale_and_shift(curr_frames, ref_frames)
+
+            scale = np.clip(scale, 0.7, 1.5)
+            aligned_t = t * scale + shift
+            aligned_t[aligned_t < 0] = 0
+
+            alpha = np.linspace(0, 1, real_overlap, dtype=np.float32).reshape(
+                1, real_overlap, 1, 1, 1
+            )
+            smooth_overlap = (1 - alpha) * ref_frames + alpha * aligned_t[
+                :, :real_overlap
+            ]
+
+            depth_list_aligned = np.concatenate(
+                [
+                    depth_list_aligned[:, :-real_overlap],
+                    smooth_overlap,
+                    aligned_t[:, real_overlap:],
+                ],
+                axis=1,
+            )
+        else:
+            depth_list_aligned = np.concatenate([depth_list_aligned, t], axis=1)
+
+        prev_end = end
+
+    profile["overlap_alignment_s"] = time.perf_counter() - align_start
+    if profile["window_count"]:
+        profile["model_pipe_avg_s"] = profile["model_pipe_s"] / profile[
+            "window_count"
+        ]
+    return depth_list_aligned[:, :T], profile
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Benchmark DVD single-video inference.")
     parser.add_argument("--ckpt", default="ckpt")
@@ -277,6 +388,7 @@ def parse_args():
     parser.add_argument("--max_frames", type=int, default=None)
     parser.add_argument("--target_fps", type=float, default=None)
     parser.add_argument("--decode_resize", action="store_true")
+    parser.add_argument("--profile_modules", action="store_true")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", choices=sorted(DTYPES), default="fp16")
     parser.add_argument("--run_name", default=None)
@@ -316,6 +428,7 @@ def main():
         "overlap": args.overlap,
         "preset": args.preset,
         "decode_resize": args.decode_resize,
+        "profile_modules": args.profile_modules,
         "weights": weights,
         "local_model_path": args.local_model_path,
         "device_requested": args.device,
@@ -344,20 +457,26 @@ def main():
             args.local_model_path,
         )
 
-    with timed(metrics, "video_read_resize_s"):
-        if args.decode_resize:
+    if args.decode_resize:
+        with timed(metrics, "video_decode_s"):
             input_tensor, origin_fps, original_frames, orig_size = (
                 read_video_limited_resized(
                     args.input_video, args.height, args.width, args.max_frames
                 )
             )
-        else:
+        metrics["video_resize_s"] = 0.0
+    else:
+        with timed(metrics, "video_decode_s"):
             input_tensor, origin_fps, original_frames = read_video_limited(
                 args.input_video, args.max_frames
             )
+        with timed(metrics, "video_resize_s"):
             input_tensor, orig_size = resize_for_training_scale(
                 input_tensor, args.height, args.width
             )
+    metrics["video_read_resize_s"] = metrics["video_decode_s"] + metrics[
+        "video_resize_s"
+    ]
 
     frames = int(input_tensor.shape[1])
     metrics.update(
@@ -375,9 +494,16 @@ def main():
 
     with timed(metrics, "inference_s"):
         with torch.inference_mode():
-            depth = generate_depth_sliced(
-                model, input_tensor, args.window_size, args.overlap
-            )[0]
+            if args.profile_modules:
+                depth_profiled, profile_modules = generate_depth_sliced_profiled(
+                    model, input_tensor, args.window_size, args.overlap
+                )
+                depth = depth_profiled[0]
+                metrics["inference_profile"] = profile_modules
+            else:
+                depth = generate_depth_sliced(
+                    model, input_tensor, args.window_size, args.overlap
+                )[0]
 
     with timed(metrics, "resize_back_s"):
         depth = resize_depth_back(depth, orig_size)
