@@ -4,6 +4,8 @@
 
 ## 结论
 
+当前最终目标调整为：**在允许量化、编译、降分辨率、蒸馏或替换实时子模型的前提下，让 2D 转 3D 的深度图生成达到 25 FPS 实时能力**。模型服务常驻时，实时指标按端到端处理速度计算，不把一次性模型加载时间计入每条视频。
+
 当前 DVD 模型基于 Wan2.1 1.3B 微调，主要计算在视频 DiT 和 VAE 上。它可以继续优化，但在目标卡 **Quadro RTX 6000 Turing** 上，不建议把主方向放在 GGUF 或 FP8。
 
 更现实的路径是：
@@ -11,7 +13,7 @@
 1. 用 FP16 跑通 Quadro RTX 6000 Turing 的基线。
 2. 通过分辨率、窗口重叠和保存路径控制吞吐。
 3. 如果需要进一步加速，优先做 TensorRT FP16 / INT8，而不是 GGUF / FP8。
-4. 如果业务必须 25 FPS 实时，建议把 DVD 定位为离线高质量深度生成，同时另选一个轻量级深度模型做实时预览。
+4. 如果原始 DVD 1.3B 在目标质量下无法 25 FPS，则把 DVD 作为 teacher / 高质量离线基线，用轻量模型、蒸馏模型或 TensorRT INT8 引擎承接实时路径。
 
 ## 为什么不优先做 GGUF
 
@@ -129,29 +131,85 @@ conda run -n dvd python tools\benchmark_single_video.py `
   --no_save
 ```
 
+## 实时 sweep
+
+先在目标机上检查 CUDA/GPU 能力：
+
+```powershell
+conda run -n dvd python tools\check_runtime_capability.py
+```
+
+`tools/realtime_sweep.py` 可以一次跑多个 preset，并输出 realtime ratio、达到 25 FPS 还需要的加速倍数、显存峰值和 Markdown 汇总。
+
+目标机建议先跑：
+
+```powershell
+conda run -n dvd python tools\realtime_sweep.py `
+  --weights C:\work\workspace_own\workspace_dvd\ckpt\model.safetensors `
+  --local_model_path C:\work\workspace_own\workspace_dvd\models `
+  --input_video test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --target_fps 25 `
+  --presets balanced throughput realtime-preview
+```
+
+快速冒烟测试可以只跑 9 帧：
+
+```powershell
+conda run -n dvd python tools\realtime_sweep.py `
+  --weights C:\work\workspace_own\workspace_dvd\ckpt\model.safetensors `
+  --local_model_path C:\work\workspace_own\workspace_dvd\models `
+  --input_video test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --target_fps 25 `
+  --max_frames 9 `
+  --presets realtime-preview
+```
+
+`benchmark_single_video.py` 的 JSON 里现在会直接记录：
+
+- `target_fps`
+- `inference_realtime_ratio`
+- `end_to_end_realtime_ratio_excluding_model_load`
+- `required_inference_speedup_to_target`
+- `required_end_to_end_speedup_to_target`
+- `realtime_met_inference_only`
+- `realtime_met_excluding_model_load`
+
 ## 后续优化优先级
 
 ### P0：在 Quadro 目标机复测
 
 先跑 `balanced`、`throughput`、`realtime-preview` 三个档位，拿到真实 FPS 和显存峰值。判断是否能实时必须以目标机实测为准。
 
-### P1：批处理时避免重复加载模型
+### P1：定义质量门槛
+
+实时方案不能只看 FPS。建议选 3-5 条代表性视频，保存原始 DVD 质量档深度作为 teacher，再比较实时档输出：
+
+- 闪烁和跳变：相邻帧深度变化是否稳定。
+- 边缘质量：人物、前景、道具边界是否糊掉。
+- 深度排序：前后景是否反转。
+- 下游 2D 转 3D 效果：立体感、遮挡、变形是否可接受。
+
+只要实时模型能通过这些业务门槛，它不必和原始 DVD 每个像素完全一致。
+
+### P2：批处理时避免重复加载模型
 
 如果后续是批量视频处理，模型加载约 10 秒可以摊掉。需要新增一个 batch runner：单次加载模型，循环处理多个视频。
 
-### P2：TensorRT FP16
+### P3：TensorRT FP16
 
 比 GGUF 更值得投入。优先尝试把 DiT 和 VAE 的稳定子图导出/编译为 TensorRT FP16。Turing 支持 FP16，但要注意 TensorRT-RTX 文档提到 Turing 需要构建针对设备的 engine。
 
-### P3：INT8 量化
+### P4：INT8 量化
 
 INT8 需要校准集和质量评估。可以先从 VAE 或部分线性层做 PTQ 实验，但 DiT 里的 attention、norm、时间条件分支对量化更敏感，需要逐段验证深度图稳定性。
 
-### P4：换轻量实时模型
+### P5：蒸馏或换轻量实时模型
 
-如果业务的硬要求是 25 FPS、原分辨率或接近原分辨率实时深度，当前 DVD 1.3B 路线不合适。建议架构上拆成：
+如果业务的硬要求是 25 FPS、原分辨率或接近原分辨率实时深度，当前 DVD 1.3B 原模型可能不合适。建议架构上拆成：
 
-- 实时预览：轻量单目/视频深度模型。
-- 离线高质量：DVD 生成高一致性深度图。
+- 实时路径：轻量单目/视频深度模型，或用 DVD 生成数据后蒸馏出的学生模型。
+- 离线路径：DVD 生成高一致性深度图，作为高质量输出和 teacher。
 
 这样能让项目在交互端可实时，同时保留 DVD 的高质量输出能力。

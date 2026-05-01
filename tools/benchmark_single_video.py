@@ -219,6 +219,7 @@ def parse_args():
     parser.add_argument("--window_size", type=int, default=81)
     parser.add_argument("--overlap", type=int, default=21)
     parser.add_argument("--max_frames", type=int, default=None)
+    parser.add_argument("--target_fps", type=float, default=None)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", choices=sorted(DTYPES), default="fp16")
     parser.add_argument("--run_name", default=None)
@@ -299,6 +300,7 @@ def main():
             "original_frames": original_frames,
             "bench_frames": frames,
             "origin_fps": float(origin_fps),
+            "target_fps": float(args.target_fps or origin_fps),
             "orig_height": int(orig_size[0]),
             "orig_width": int(orig_size[1]),
             "resized_height": int(input_tensor.shape[-2]),
@@ -359,6 +361,21 @@ def main():
     metrics["inference_fps"] = frames / metrics["inference_s"]
     metrics["end_to_end_fps_excluding_model_load"] = frames / (
         metrics["total_s"] - metrics["model_load_s"]
+    )
+    target_fps = metrics["target_fps"]
+    metrics["inference_realtime_ratio"] = metrics["inference_fps"] / target_fps
+    metrics["end_to_end_realtime_ratio_excluding_model_load"] = (
+        metrics["end_to_end_fps_excluding_model_load"] / target_fps
+    )
+    metrics["required_inference_speedup_to_target"] = target_fps / metrics[
+        "inference_fps"
+    ]
+    metrics["required_end_to_end_speedup_to_target"] = target_fps / metrics[
+        "end_to_end_fps_excluding_model_load"
+    ]
+    metrics["realtime_met_inference_only"] = metrics["inference_fps"] >= target_fps
+    metrics["realtime_met_excluding_model_load"] = (
+        metrics["end_to_end_fps_excluding_model_load"] >= target_fps
     )
     if torch.cuda.is_available():
         metrics["cuda_peak_allocated_gb"] = round(

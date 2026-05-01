@@ -54,6 +54,26 @@ realtime-preview 128x512 target, window 81, overlap 9
 
 See `doc/optimization_strategy.md` for the GGUF/FP8 analysis and the real-time benchmark notes.
 
+For the real-time goal, run the sweep helper on the target GPU:
+
+```powershell
+conda run -n dvd python tools\check_runtime_capability.py
+```
+
+Then run the preset sweep:
+
+```powershell
+conda run -n dvd python tools\realtime_sweep.py `
+  --weights C:\work\workspace_own\workspace_dvd\ckpt\model.safetensors `
+  --local_model_path C:\work\workspace_own\workspace_dvd\models `
+  --input_video test_video\depth_full_50frame.mp4 `
+  --output_dir output `
+  --target_fps 25 `
+  --presets balanced throughput realtime-preview
+```
+
+The sweep writes JSON and Markdown summaries with the measured FPS and the remaining speedup needed to hit 25 FPS.
+
 For downstream 2D-to-3D processing, save raw relative depth instead of only the color visualization:
 
 ```powershell
