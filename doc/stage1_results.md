@@ -77,6 +77,7 @@ conda run -n dvd python tools\stage1_quality_samples.py `
 | balanced | 121 | 256x928 | 8.28 | `output/stage1_balanced_color_depth_vis.mp4` |
 | throughput | 121 | 192x704 | 14.79 | `output/stage1_throughput_color_depth_vis.mp4` |
 | realtime | 121 | 160x576 | 20.18 | `output/stage1_realtime_color_depth_vis.mp4` |
+| realtime-tall | 121 | 176x576 | 19.38 | `output/stage1_realtime_tall_color_depth_vis.mp4` |
 | realtime-preview | 121 | 144x512 | 26.56 | `output/stage1_realtime_preview_color_depth_vis.mp4` |
 | speed-floor | 121 | 112x384 | 40.69 | `output/stage1_speed_floor_color_depth_vis.mp4` |
 
@@ -90,7 +91,7 @@ conda run -n dvd python tools\stage1_quality_samples.py `
 
 - `output/stage1_contact_sheet.png`
 
-这张图把源视频、`balanced`、`throughput`、`realtime`、`realtime-preview`、`speed-floor` 在相同帧位拼到一起，适合先快速判断低分辨率深度是否有明显失真、闪烁或边缘问题。
+这张图把源视频、`balanced`、`throughput`、`realtime`、`realtime-tall`、`realtime-preview`、`speed-floor` 在相同帧位拼到一起，适合先快速判断低分辨率深度是否有明显失真、闪烁或边缘问题。
 
 下一步需要人工检查 `realtime`、`realtime-preview` 和 `speed-floor` 的 2D 转 3D 效果。如果 `160x576` 能接受，第一阶段优先用 `realtime`；如果质量不够但 `144x512` 能接受，则用 `realtime-preview`；如果两者都不够，则优先冲 `throughput`。
 
@@ -136,10 +137,27 @@ conda run -n dvd python tools\stage1_batch_runner.py `
 结论：
 
 - 模型加载约 `11.33s`，属于一次性启动成本。
-- 常驻形态下 `realtime-preview` 和 `speed-floor` 都稳定超过 25 FPS。
-- 现在第一阶段瓶颈已经从“能否实时”转为“`144x512` 或 `112x384` 的深度质量是否满足 2D 转 3D”。
+- 常驻形态下 `realtime`、`realtime-preview` 和 `speed-floor` 都稳定超过 25 FPS。
+- 现在第一阶段瓶颈已经从“能否实时”转为“`160x576`、`144x512` 或 `112x384` 的深度质量是否满足 2D 转 3D”。
 
-### 5. 第一阶段加速环境检测
+### 5. 实时边界探索
+
+在 `160x576` 过线后，继续测试了更高分辨率边界：
+
+| target | actual depth | window | runtime FPS，不含模型加载 | 结论 |
+| --- | --- | ---: | ---: | --- |
+| 160x576 | 176x576 | 81 | 25.86 | 速度过线，但宽高比偏离源视频，暂不作为默认 |
+| 168x512 | 176x608 | 81 | 24.27 | 未过线 |
+| 176x576 | 176x640 | 81 | 23.13 | 未过线 |
+| 176x576 | 176x640 | 121 | 24.06 | 推理刚过线，端到端未过线 |
+
+说明：
+
+- 源视频宽高比约 `3.59`。
+- 当前默认 `realtime` 输出 `160x576`，宽高比约 `3.60`，更接近源视频。
+- `176x576` 虽然速度过线，但宽高比约 `3.27`，可能导致输入形变和深度边缘变化；只有在 `output/stage1_contact_sheet.png` 和下游 2D 转 3D 检查通过后，才建议把它升为正式 preset。
+
+### 6. 第一阶段加速环境检测
 
 命令：
 
@@ -168,7 +186,7 @@ conda run -n dvd python tools\check_stage1_acceleration.py
 - FP8 dtype 可见，但还没有可接受的 FP8 量化/导出链路。
 - TensorRT FP16/FP8 当前环境缺依赖，下一步需要先安装 TensorRT/ONNX 相关包。
 
-### 6. PyTorch compile 初测
+### 7. PyTorch compile 初测
 
 已新增：
 
@@ -194,7 +212,7 @@ conda run -n dvd python tools\check_stage1_acceleration.py
 
 结论：当前 `torch.compile` 对这个链路收益很小，不应作为第一阶段主优化。
 
-### 7. VAE channels-last 初测
+### 8. VAE channels-last 初测
 
 `--vae_channels_last_3d` 已加为实验项，但当前模型直接应用会失败：
 

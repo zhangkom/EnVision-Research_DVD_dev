@@ -18,6 +18,7 @@
 
 - `realtime-preview + decode_resize`，实际处理尺寸 `144x512`，1000 帧端到端不含模型加载 `35.11 FPS`。
 - `realtime + decode_resize + no_resize_back`，实际处理尺寸 `160x576`，1000 帧常驻 batch runtime `27.49 FPS`。
+- `160x576 target + decode_resize + no_resize_back`，实际处理尺寸 `176x576`，1000 帧 runtime `25.86 FPS`，但宽高比偏离源视频，暂作为实验档。
 - `realtime-preview + decode_resize + no_resize_back`，常驻 batch runtime `36.28 FPS`。
 - `speed-floor + decode_resize + no_resize_back`，常驻 batch runtime `61.76 FPS`。
 - 深拆后，`model.pipe` 窗口推理占 inference `93.4%`，是第一瓶颈。
@@ -115,8 +116,11 @@ conda run -n dvd python tools\realtime_sweep.py `
 | preset | depth size | runtime FPS |
 | --- | --- | ---: |
 | realtime | 160x576 | 27.49 |
+| realtime-tall experiment | 176x576 | 25.86 |
 | realtime-preview | 144x512 | 36.28 |
 | speed-floor | 112x384 | 61.76 |
+
+`realtime-tall experiment` 速度过线，但宽高比约 `3.27`，源视频约 `3.59`；需要人工检查形变和下游 2D 转 3D 效果后才能转正。
 
 ### 5. 编译和量化
 
